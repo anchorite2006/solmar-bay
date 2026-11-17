@@ -14,7 +14,11 @@
   #hud .sub { font-size: 12px; opacity: .9; margin-top: 2px; }
   #hud .pos { font-size: 12px; margin-top: 8px; font-family: monospace; }
   #hud .speed { font-size: 20px; font-weight: bold; margin-top: 6px; color: #ffe9a8; }
-  #hud .objective { font-size: 13px; margin-top: 6px; color: #bfe8ff; }
+  #hud .wanted { font-size: 22px; letter-spacing: 3px; margin-top: 6px; color: #ffd34d; }
+  #hud .cash { font-size: 16px; font-weight: bold; margin-top: 4px; color: #7ee787; }
+  #busted { position: fixed; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; background: rgba(20, 4, 8, .62); color: #fff; z-index: 9; text-align: center; }
+  #busted h1 { font-size: 72px; margin: 0; letter-spacing: 10px; color: #ff5a4e; text-shadow: 0 3px 14px rgba(0,0,0,.7); }
+  #busted p { font-size: 17px; margin: 12px 0 0; }
   #minimap { position: fixed; top: 12px; right: 14px; width: 150px; height: 150px; border: 2px solid rgba(255,233,168,.8); border-radius: 50%; background: rgba(8,24,44,.72); z-index: 5; }
   #prompt { position: fixed; bottom: 64px; left: 50%; transform: translateX(-50%); display: none; color: #fff; background: rgba(8,24,44,.8); border: 1px solid #ffe9a8; border-radius: 6px; padding: 8px 16px; font-size: 15px; font-weight: bold; z-index: 5; }
   #toast { position: fixed; top: 46%; left: 50%; transform: translateX(-50%); display: none; color: #ffe9a8; background: rgba(8,24,44,.85); border-radius: 8px; padding: 12px 22px; font-size: 18px; font-weight: bold; text-align: center; z-index: 6; }
@@ -33,18 +37,21 @@
 <div id="app"></div>
 <div id="hud">
   <h1>SOLMAR BAY</h1>
-  <div class="sub">M2 &middot; steal a car, drive the city</div>
+  <div class="sub">M3 &middot; wanted level, police chases, missions</div>
+  <div class="wanted" id="wanted">☆☆☆☆☆</div>
+  <div class="cash" id="cash">$0</div>
   <div class="pos" id="pos">x 0.0 &nbsp; z 0.0</div>
   <div class="speed" id="speed">On foot</div>
-  <div class="objective" id="objective">Objective: Drive to the marker</div>
+  <div class="objective" id="objective">Objective: Pick up the package</div>
 </div>
 <canvas id="minimap" width="150" height="150"></canvas>
 <div id="prompt">Press E to steal</div>
 <div id="toast"></div>
-<div id="hint">WASD / arrows &mdash; walk &nbsp;&middot;&nbsp; E &mdash; steal / exit car &nbsp;&middot;&nbsp; W/S drive, A/D steer, Shift boost &nbsp;&middot;&nbsp; drag mouse &mdash; orbit camera</div>
+<div id="hint">WASD / arrows &mdash; walk &nbsp;&middot;&nbsp; E &mdash; steal / exit car &nbsp;&middot;&nbsp; F &mdash; shove &nbsp;&middot;&nbsp; W/S drive, A/D steer, Shift boost &nbsp;&middot;&nbsp; drag mouse &mdash; orbit camera</div>
+<div id="busted"><h1>BUSTED</h1><p>The Solmar Bay police hauled you in. Your heat is cleared — the job waits.</p></div>
 <div id="overlay">
   <h1>SOLMAR BAY</h1>
-  <p>A sun-soaked seaside city. Walk its streets, steal a car, drive to the marker.</p>
+  <p>A sun-soaked seaside city. Walk its streets, steal a car, outrun the cops, run the job.</p>
   <div class="go">CLICK TO START</div>
 </div>
 <script type="module" src="./src/main.js"></script>

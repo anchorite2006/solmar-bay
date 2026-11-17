@@ -1,6 +1,7 @@
-// Solmar Bay M2: renderer, sun + sky, city, player, drivable cars, moving traffic,
-// pedestrians, a mission marker, a 2D minimap, HUD, start overlay, and the ?shot= staged
-// views used for screenshots.
+// Solmar Bay M3: renderer, sun + sky, city, player, drivable cars, moving traffic,
+// pedestrians, a wanted level with police chases, a three-step mission chain, a
+// shove on foot, a 2D minimap, HUD, start overlay, and the ?shot= staged views used
+// for screenshots.
 import * as THREE from 'three';
 import { CAMERA, CITY_SPAN, ROAD_CENTERS, SEED_DEFAULT, SKY } from './config.js';
 import { buildCity } from './world.js';
@@ -12,6 +13,9 @@ import {
 } from './vehicles.js';
 import { createTraffic } from './traffic.js';
 import { createPedestrians } from './pedestrians.js';
+import { createWanted } from './wanted.js';
+import { createPolice } from './police.js';
+import { createMissions } from './missions.js';
 
 const params = new URLSearchParams(window.location.search);
 const seed = Number(params.get('seed') ?? SEED_DEFAULT) || SEED_DEFAULT;
@@ -23,9 +27,12 @@ const app = document.getElementById('app');
 const posEl = document.getElementById('pos');
 const speedEl = document.getElementById('speed');
 const objectiveEl = document.getElementById('objective');
+const wantedEl = document.getElementById('wanted');
+const cashEl = document.getElementById('cash');
 const promptEl = document.getElementById('prompt');
 const toastEl = document.getElementById('toast');
 const overlay = document.getElementById('overlay');
+const bustedEl = document.getElementById('busted');
 const minimap = document.getElementById('minimap');
 const mapCtx = minimap.getContext('2d');
 
@@ -66,28 +73,10 @@ scene.add(player);
 const input = createInput(renderer.domElement);
 input.yaw = -Math.PI / 2; // live play starts facing east down the avenue, camera behind on the road
 
-// Mission seed: one beacon at the 81 / 27 intersection. Reach it, on foot or by car.
-const MARKER = { x: 81, z: 27 };
-const beacon = new THREE.Group();
-const beam = new THREE.Mesh(
-  new THREE.CylinderGeometry(1.4, 1.4, 34, 16, 1, true),
-  new THREE.MeshBasicMaterial({ color: 0xffd34d, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false }),
-);
-beam.position.y = 17;
-const gem = new THREE.Mesh(
-  new THREE.OctahedronGeometry(1.6),
-  new THREE.MeshStandardMaterial({ color: 0xffd34d, emissive: 0xaa7700, roughness: 0.3, metalness: 0.4 }),
-);
-gem.position.y = 35;
-const ring = new THREE.Mesh(
-  new THREE.RingGeometry(2.2, 3.0, 32),
-  new THREE.MeshBasicMaterial({ color: 0xffd34d, transparent: true, opacity: 0.8, side: THREE.DoubleSide }),
-);
-ring.rotation.x = -Math.PI / 2;
-ring.position.y = 0.06;
-beacon.add(beam, gem, ring);
-beacon.position.set(MARKER.x, 0, MARKER.z);
-scene.add(beacon);
+const wanted = createWanted();
+const police = createPolice(scene, city.colliders);
+const missions = createMissions(scene);
+objectiveEl.textContent = missions.objectiveText();
 
 const ctx = {
   player,
@@ -98,19 +87,27 @@ const ctx = {
   traffic,
   pedestrians,
   driving,
+  wanted,
+  police,
+  missions,
   overview: false,
   cameraPitch: 0.42,
   cameraDistance: CAMERA.distance,
   promptEl,
   toastEl,
   objectiveEl,
-  marker: MARKER,
-  markerDone: false,
-  beacon,
+  wantedEl,
+  cashEl,
+  bustedEl,
 };
 
 function focusPoint() {
   return driving.car ? driving.car.position : player.position;
+}
+
+function focusSpeed() {
+  if (driving.car) return Math.abs(driving.speed);
+  return 0;
 }
 
 function placeCamera() {
@@ -143,6 +140,9 @@ function updateHud() {
   const focus = focusPoint();
   posEl.textContent = `x ${focus.x.toFixed(1)} \u00a0 z ${focus.z.toFixed(1)}`;
   speedEl.textContent = driving.car ? `${speedKmh(driving).toFixed(0)} km/h` : 'On foot';
+  wantedEl.textContent = wanted.starsText();
+  wantedEl.style.color = wanted.level > 0 ? '#ffd34d' : 'rgba(255,255,255,0.55)';
+  cashEl.textContent = `$${missions.cash}`;
 }
 
 function drawMinimap() {
@@ -159,16 +159,25 @@ function drawMinimap() {
     mapCtx.fillRect(0, p - 3, W, 6);
     mapCtx.fillRect(p - 3, 0, 6, H);
   }
-  // Mission marker.
+  // Mission marker: the golden beacon the player is heading for.
+  const target = missions.currentTarget();
   mapCtx.fillStyle = '#ffd34d';
   mapCtx.beginPath();
-  mapCtx.arc(toMap(MARKER.x), toMap(MARKER.z), 5, 0, Math.PI * 2);
+  mapCtx.arc(toMap(target.x), toMap(target.z), 5, 0, Math.PI * 2);
   mapCtx.fill();
   // Traffic cars as white dots.
   mapCtx.fillStyle = '#ffffff';
   for (const car of traffic.cars) {
     mapCtx.beginPath();
     mapCtx.arc(toMap(car.mesh.position.x), toMap(car.mesh.position.z), 2, 0, Math.PI * 2);
+    mapCtx.fill();
+  }
+  // Police cars as flashing red/blue dots.
+  const flashRed = Math.sin(performance.now() / 180) > 0;
+  mapCtx.fillStyle = flashRed ? '#ff3b30' : '#3b82ff';
+  for (const car of police.cars) {
+    mapCtx.beginPath();
+    mapCtx.arc(toMap(car.mesh.position.x), toMap(car.mesh.position.z), 3.5, 0, Math.PI * 2);
     mapCtx.fill();
   }
   // The player: yellow on foot, cyan in a car.
@@ -179,14 +188,63 @@ function drawMinimap() {
   mapCtx.fill();
 }
 
-function checkMission() {
-  if (ctx.markerDone) return;
-  const focus = focusPoint();
-  if (Math.hypot(focus.x - MARKER.x, focus.z - MARKER.z) < 7) {
-    ctx.markerDone = true;
-    objectiveEl.textContent = 'Objective complete — welcome to Solmar Bay!';
-    showToast('Objective complete — welcome to Solmar Bay!');
-    beacon.visible = false;
+// Busted: the cops haul the player in. The overlay holds for a beat, then the player
+// is dropped back on foot nearby with a clean slate and the current job step re-armed.
+let busted = { active: false, until: 0 };
+function triggerBusted() {
+  if (busted.active) return;
+  busted.active = true;
+  busted.until = performance.now() + 1800;
+  bustedEl.style.display = 'flex';
+  if (driving.car) exitCar(driving, player);
+}
+function resolveBusted() {
+  busted.active = false;
+  bustedEl.style.display = 'none';
+  player.position.set(0, 0, 27);
+  player.rotation.y = Math.PI / 2;
+  player.visible = true;
+  input.yaw = -Math.PI / 2;
+  wanted.clear();
+  police.removeAll();
+  missions.resetCurrentStep();
+  objectiveEl.textContent = missions.objectiveText();
+  showToast('You walked away clean. The job is still waiting.');
+}
+
+// Crime timers: a hard crash or a pedestrian hit only counts once per incident.
+let crashCooldownUntil = 0;
+const pedHitAt = new Map();
+
+function checkCrimes(prevSpeed) {
+  const now = performance.now();
+  if (driving.car) {
+    const drop = prevSpeed - driving.speed;
+    if (prevSpeed > 8 && drop > 7 && now > crashCooldownUntil) {
+      wanted.add(1);
+      crashCooldownUntil = now + 3000;
+      showToast('Hard crash! The cops noticed.');
+    }
+    if (Math.abs(driving.speed) > 4) {
+      const car = driving.car.position;
+      pedestrians.walkers.forEach((w, i) => {
+        const d = Math.hypot(w.mesh.position.x - car.x, w.mesh.position.z - car.z);
+        if (d < 1.8 && now - (pedHitAt.get(i) || 0) > 4000) {
+          pedHitAt.set(i, now);
+          pedestrians.scare(car.x, car.z, 2, 2.5);
+          wanted.add(1);
+          showToast('You hit a pedestrian!');
+        }
+      });
+    }
+  }
+  // Shove on foot: F near a walker sends them fleeing and draws a star.
+  if (!driving.car && input.consumePunch()) {
+    const scared = pedestrians.scare(player.position.x, player.position.z, 3, 2.5);
+    if (scared) {
+      wanted.add(1);
+      showToast('You shoved a pedestrian. Someone called the cops.');
+    }
   }
 }
 
@@ -203,11 +261,15 @@ window.addEventListener('resize', () => {
 });
 
 const clock = new THREE.Clock();
-// Debug handle for local play-testing (positions, driving state); harmless in the game.
-window.__solmarDebug = { traffic, pedestrians, driving, player, cars: city.cars };
+// Debug handle for local play-testing (positions, driving, wanted, police, missions).
+window.__solmarDebug = {
+  traffic, pedestrians, driving, player, cars: city.cars,
+  wanted, police, missions,
+  get busted() { return busted.active; },
+};
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.05);
-  if (started) {
+  if (started && !busted.active) {
     if (input.consumeAction()) {
       if (driving.car) {
         exitCar(driving, player);
@@ -215,10 +277,13 @@ function frame() {
         const target = nearestStealable(player.position, city.cars);
         if (target) {
           enterCar(driving, target, city.cars, city.carColliders, player);
+          wanted.add(1);
+          showToast('Stolen! The cops are on their way.');
           input.yaw = driving.heading + Math.PI; // swing the camera behind the car
         }
       }
     }
+    const prevSpeed = driving.speed;
     if (driving.car) {
       updateDriving(driving, input.drive(), city.colliders, dt);
       player.position.set(driving.car.position.x, 0, driving.car.position.z);
@@ -226,22 +291,31 @@ function frame() {
       const wish = input.wishDirection();
       movePlayer(player, city.colliders, wish.x, wish.z, dt, input.running());
     }
+    checkCrimes(prevSpeed);
     traffic.update(dt);
     pedestrians.update(dt);
-    gem.rotation.y += dt * 1.5;
-    gem.position.y = 35 + Math.sin(performance.now() / 500) * 0.5;
+    missions.animate(performance.now());
+    missions.update(focusPoint(), {
+      showToast,
+      setObjective: (text) => { objectiveEl.textContent = text; },
+      onHeat: () => { wanted.add(1); },
+    });
+    const focus = focusPoint();
+    police.ensure(wanted.level, focus);
+    police.update(dt, focus, focusSpeed(), { onBusted: triggerBusted }, driving.collider);
+    wanted.update(dt, police.nearestDistance(focus));
     // Steal prompt: only on foot, only near a parked car.
     if (!driving.car && nearestStealable(player.position, city.cars)) {
       promptEl.style.display = 'block';
     } else {
       promptEl.style.display = 'none';
     }
-    checkMission();
     if (toastUntil && performance.now() > toastUntil) {
       toastEl.style.display = 'none';
       toastUntil = 0;
     }
   }
+  if (busted.active && performance.now() > busted.until) resolveBusted();
   placeCamera();
   updateHud();
   drawMinimap();
@@ -254,6 +328,8 @@ if (shot) {
   overlay.classList.add('hidden');
   started = true;
   stageShot(shot, ctx);
+  missions.animate(performance.now());
+  police.update(0.12, focusPoint(), focusSpeed(), { onBusted: () => {} }, driving.collider);
   placeCamera();
   updateHud();
   drawMinimap();

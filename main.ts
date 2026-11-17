@@ -2,12 +2,13 @@
 // directory's game/ folder, plain static files a desktop browser loads offline (game/index.html
 // and its ES modules, three.js vendored under game/vendor/, no network request), and the program
 // hands it in. It copies game/ and screenshots/ from beside this file to /output and writes
-// /output/dossier.json, the summary the judge reads, with the vendored make.fun library. M2:
+// /output/dossier.json, the summary the judge reads, with the vendored make.fun library. M3:
 // a sun-soaked procedural seaside city you walk through on foot or drive through in a stolen
 // car — a grid of roads, sidewalks, buildings, palm trees, parked cars, moving traffic and
 // pedestrians, third-person follow camera, orbit on mouse-drag, WASD/arrows to walk, E to
-// steal a car, W/S/A/D to drive it, a mission marker and a 2D minimap on the HUD. Later
-// milestones add a wanted system and mission chains on top of this same city.
+// steal a car, W/S/A/D to drive it, a wanted level with police chases and BUSTED arrests,
+// a three-step mission chain that pays $500, a shove on foot, and a 2D minimap on the HUD.
+// Later milestones polish the HUD and add the final screenshots on top of this same city.
 // Serve it locally with `node serve.ts`, then open http://localhost:8080.
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts

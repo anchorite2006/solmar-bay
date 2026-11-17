@@ -77,15 +77,87 @@ export function createPedestrians(scene, seed, count = 24) {
       along: rng() * side,
       speed: range(rng, 1.1, 1.9),
       clockwise: rng() < 0.5,
+      clock: 0,
+      fleeUntil: 0,
+      fleeing: false,
+      threatX: 0,
+      threatZ: 0,
     };
     scene.add(mesh);
     walkers.push(walker);
   }
   return {
     walkers,
+    /**
+     * Scare the nearest walker within `radius` of (x, z): they stagger away from the
+     * threat for `seconds`, then rejoin their sidewalk loop where they ended up.
+     * Returns the scared walker, or null when nobody was close enough.
+     */
+    scare(x, z, radius = 3, seconds = 2.5) {
+      let best = null;
+      let bestD = radius;
+      for (const w of walkers) {
+        const d = Math.hypot(w.mesh.position.x - x, w.mesh.position.z - z);
+        if (d < bestD) {
+          bestD = d;
+          best = w;
+        }
+      }
+      if (!best) return null;
+      best.threatX = x;
+      best.threatZ = z;
+      best.fleeUntil = best.clock + seconds;
+      best.fleeing = true;
+      return best;
+    },
     /** Advance every walker one frame; call with a fixed dt for deterministic screenshots. */
     update(dt) {
       for (const w of walkers) {
+        w.clock += dt;
+        if (w.fleeUntil > w.clock) {
+          // Fleeing: run straight away from the threat, legs pumping.
+          const dx = w.mesh.position.x - w.threatX;
+          const dz = w.mesh.position.z - w.threatZ;
+          const len = Math.hypot(dx, dz) || 1;
+          const run = 4.2 * dt;
+          w.mesh.position.x += (dx / len) * run;
+          w.mesh.position.z += (dz / len) * run;
+          w.mesh.rotation.y = Math.atan2(dx, dz);
+          const u = w.mesh.userData;
+          u.phase += dt * 14;
+          const swing = Math.sin(u.phase) * 0.7;
+          u.legL.rotation.x = swing;
+          u.legR.rotation.x = -swing;
+          u.armL.rotation.x = -swing * 0.8;
+          u.armR.rotation.x = swing * 0.8;
+          continue;
+        }
+        if (w.fleeing) {
+          // The scare is over: rejoin the sidewalk loop at the nearest point of it.
+          w.fleeing = false;
+          let bestD = Infinity;
+          let bestEdge = 0;
+          let bestAlong = 0;
+          for (let e = 0; e < 4; e += 1) {
+            const from = w.corners[e];
+            const to = w.clockwise ? w.corners[(e + 1) % 4] : w.corners[(e + 3) % 4];
+            const ex = to.x - from.x;
+            const ez = to.z - from.z;
+            const segLen = Math.hypot(ex, ez) || 1;
+            const t = Math.max(0, Math.min(1,
+              ((w.mesh.position.x - from.x) * ex + (w.mesh.position.z - from.z) * ez) / (segLen * segLen)));
+            const px = from.x + ex * t;
+            const pz = from.z + ez * t;
+            const d = Math.hypot(w.mesh.position.x - px, w.mesh.position.z - pz);
+            if (d < bestD) {
+              bestD = d;
+              bestEdge = e;
+              bestAlong = t * segLen;
+            }
+          }
+          w.edge = bestEdge;
+          w.along = bestAlong;
+        }
         w.along += w.speed * dt;
         if (w.along >= side) {
           w.along -= side;

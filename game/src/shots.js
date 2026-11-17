@@ -39,7 +39,26 @@ function placeWalkerForFrame(ctx, index, x, z, heading) {
   walker.mesh.rotation.y = heading;
 }
 
-/** Shared street-level setup: player on the avenue facing east, camera behind on the road. */
+/** Override one patrol car's mesh pose for the frame (shot mode renders once). */
+function placePoliceForFrame(ctx, index, x, z, heading) {
+  const unit = ctx.police.cars[index];
+  if (!unit) return;
+  unit.mesh.position.set(x, 0, z);
+  unit.mesh.rotation.y = heading;
+  unit.heading = heading;
+}
+
+/** Put the player in a parked car and drive it east down the avenue for a beat. */
+function driveEastForFrame(ctx, startX, seconds) {
+  const car = ctx.cars[0];
+  parkCarForFrame(car, startX, 27, Math.PI / 2);
+  enterCar(ctx.driving, car, ctx.cars, ctx.carColliders, ctx.player);
+  for (let i = 0; i < Math.round(seconds * 60); i += 1) {
+    updateDriving(ctx.driving, { throttle: 1, steer: 0, boost: false }, ctx.colliders, 1 / 60);
+  }
+  ctx.input.yaw = ctx.driving.heading + Math.PI;
+  return car;
+}
 function faceEast(ctx, playerX, distance, pitch) {
   const { player, input } = ctx;
   player.position.set(playerX, 0, 27);
@@ -111,6 +130,89 @@ export function stageShot(name, ctx) {
     placeWalkerForFrame(ctx, 0, front + 8, 21, Math.PI / 2);
     placeWalkerForFrame(ctx, 1, front + 20, 33, -Math.PI / 2);
     placeWalkerForFrame(ctx, 2, front + 30, 21, Math.PI / 2);
+    return;
+  }
+  if (name === 'chase') {
+    // COVER: police chase — player driving east, two patrol cars tight behind with
+    // lights flashing, three wanted stars, the golden mission beacon ahead, minimap
+    // showing the red/blue police dots.
+    settle(ctx, 3);
+    ctx.missions.setStep(0);
+    ctx.objectiveEl.textContent = ctx.missions.objectiveText();
+    const car = driveEastForFrame(ctx, -30, 1.5);
+    const front = car.position.x;
+    ctx.wanted.setLevel(3);
+    ctx.police.ensure(3, car.position);
+    // Diagonal camera (yaw swung off the road axis) so the units behind the player
+    // stay in frame: two tight behind in the side lanes, one cutting in ahead.
+    ctx.input.yaw = ctx.driving.heading + Math.PI + 0.55;
+    placePoliceForFrame(ctx, 0, front - 9, 29.4, Math.PI / 2);
+    placePoliceForFrame(ctx, 1, front - 17, 24.6, Math.PI / 2);
+    placePoliceForFrame(ctx, 2, front + 12, 24.6, -Math.PI / 2);
+    ctx.cameraPitch = 0.32;
+    ctx.cameraDistance = 13;
+    placeTrafficForFrame(ctx, 0, front + 18, 29.4, Math.PI / 2);
+    placeTrafficForFrame(ctx, 1, front + 30, 24.6, -Math.PI / 2);
+    placeWalkerForFrame(ctx, 0, front + 10, 21, Math.PI / 2);
+    placeWalkerForFrame(ctx, 1, front + 24, 33, -Math.PI / 2);
+    return;
+  }
+  if (name === 'mission') {
+    // Mission in progress: the player driving toward the golden beacon, one patrol
+    // car closing in behind, HUD objective "Pick up the package" on screen.
+    settle(ctx, 3);
+    ctx.missions.setStep(0);
+    ctx.objectiveEl.textContent = ctx.missions.objectiveText();
+    const car = driveEastForFrame(ctx, 30, 1.2);
+    const front = car.position.x;
+    ctx.wanted.setLevel(1);
+    ctx.police.ensure(1, car.position);
+    placePoliceForFrame(ctx, 0, front - 13, 24.6, Math.PI / 2);
+    ctx.cameraPitch = 0.3;
+    ctx.cameraDistance = 9.5;
+    placeTrafficForFrame(ctx, 0, front + 22, 29.4, Math.PI / 2);
+    placeWalkerForFrame(ctx, 0, front + 14, 21, Math.PI / 2);
+    return;
+  }
+  if (name === 'busted') {
+    // BUSTED: a patrol car blocking the player's car nose-to-nose, a second unit
+    // pulling in behind, the red BUSTED overlay across the frame.
+    settle(ctx, 2);
+    ctx.missions.setStep(0);
+    ctx.objectiveEl.textContent = ctx.missions.objectiveText();
+    const car = ctx.cars[0];
+    parkCarForFrame(car, 10, 27, Math.PI / 2);
+    enterCar(ctx.driving, car, ctx.cars, ctx.carColliders, ctx.player);
+    ctx.input.yaw = ctx.driving.heading + Math.PI;
+    ctx.wanted.setLevel(3);
+    ctx.police.ensure(3, car.position);
+    placePoliceForFrame(ctx, 0, 16, 27, -Math.PI / 2);
+    placePoliceForFrame(ctx, 1, 1, 29.4, Math.PI / 2);
+    placePoliceForFrame(ctx, 2, -8, 24.6, Math.PI / 2);
+    ctx.bustedEl.style.display = 'flex';
+    ctx.cameraPitch = 0.34;
+    ctx.cameraDistance = 11;
+    placeTrafficForFrame(ctx, 0, 30, 29.4, Math.PI / 2);
+    placeWalkerForFrame(ctx, 0, 20, 21, Math.PI / 2);
+    return;
+  }
+  if (name === 'wanted') {
+    // Wanted on foot: two stars in the HUD, a pedestrian fleeing the shove, a patrol
+    // car rolling up the intersection behind the player.
+    settle(ctx, 2);
+    ctx.missions.setStep(0);
+    ctx.objectiveEl.textContent = ctx.missions.objectiveText();
+    faceEast(ctx, 18, 6, 0.3);
+    ctx.player.position.set(18, 0, 27);
+    ctx.wanted.setLevel(2);
+    ctx.police.ensure(2, ctx.player.position);
+    placePoliceForFrame(ctx, 0, 27, 40, Math.PI);
+    placePoliceForFrame(ctx, 1, 36, 24.6, -Math.PI / 2);
+    placeWalkerForFrame(ctx, 0, 21.5, 24.5, Math.PI / 2);
+    ctx.pedestrians.scare(18, 27, 6, 60);
+    placeWalkerForFrame(ctx, 1, 14, 33, -Math.PI / 2);
+    placeWalkerForFrame(ctx, 2, 26, 21, Math.PI / 2);
+    parkCarForFrame(ctx.cars[0], 24, 24.8, Math.PI / 2);
     return;
   }
   if (name === 'street') {

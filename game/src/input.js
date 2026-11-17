@@ -7,10 +7,12 @@ export function createInput(canvas) {
   let lastX = 0;
   let lastY = 0;
   let actionQueued = false;
+  let punchQueued = false;
 
   window.addEventListener('keydown', (e) => {
     keys.add(e.code);
     if (e.code === 'KeyE') actionQueued = true;
+    if (e.code === 'KeyF') punchQueued = true;
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
   });
   window.addEventListener('keyup', (e) => keys.delete(e.code));
@@ -50,6 +52,12 @@ export function createInput(canvas) {
     consumeAction() {
       const pressed = actionQueued;
       actionQueued = false;
+      return pressed;
+    },
+    /** True once per F keypress: a punch/shove on foot. */
+    consumePunch() {
+      const pressed = punchQueued;
+      punchQueued = false;
       return pressed;
     },
     /** Arcade driving controls: W/S throttle, A/D steer (A turns left), Shift boosts. */
