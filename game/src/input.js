@@ -1,53 +1,48 @@
-// Keyboard and pointer input. Held keys give a steering direction; one-shot presses (start or
-// restart, pause) are queued as bit flags and taken once by the loop, so a press between two
-// frames is never lost and never counted twice.
+// Keyboard + mouse-drag input: WASD/arrows to walk, Shift to run, drag to orbit the camera.
+export function createInput(canvas) {
+  const keys = new Set();
+  let yaw = Math.PI; // camera starts behind the player, looking north down the avenue
+  let pitch = 0.42;
+  let dragging = false;
+  let lastX = 0;
+  let lastY = 0;
 
-export const ACTION_CONFIRM = 1;
-export const ACTION_PAUSE = 2;
+  window.addEventListener('keydown', (e) => {
+    keys.add(e.code);
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
+  });
+  window.addEventListener('keyup', (e) => keys.delete(e.code));
+  canvas.addEventListener('mousedown', (e) => {
+    dragging = true;
+    lastX = e.clientX;
+    lastY = e.clientY;
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    yaw -= (e.clientX - lastX) * 0.005;
+    pitch += (e.clientY - lastY) * 0.004;
+    pitch = Math.max(0.12, Math.min(1.1, pitch));
+    lastX = e.clientX;
+    lastY = e.clientY;
+  });
+  window.addEventListener('mouseup', () => { dragging = false; });
 
-const LEFT = new Set(['ArrowLeft', 'KeyA']);
-const RIGHT = new Set(['ArrowRight', 'KeyD']);
-const CONFIRM = new Set(['Space', 'Enter']);
-const PAUSE = new Set(['KeyP', 'Escape']);
-
-export function createInput(target) {
-  let left = false;
-  let right = false;
-  let actions = 0;
-
-  window.addEventListener('keydown', (event) => {
-    if (LEFT.has(event.code)) left = true;
-    else if (RIGHT.has(event.code)) right = true;
-    else if (CONFIRM.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_CONFIRM;
-    } else if (PAUSE.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_PAUSE;
-    } else return;
-    event.preventDefault();
-  });
-  window.addEventListener('keyup', (event) => {
-    if (LEFT.has(event.code)) left = false;
-    else if (RIGHT.has(event.code)) right = false;
-  });
-  // A key released while the tab is hidden never sends keyup: let go of everything on blur.
-  window.addEventListener('blur', () => {
-    left = false;
-    right = false;
-  });
-  target.addEventListener('pointerdown', () => {
-    actions |= ACTION_CONFIRM;
-  });
+  /** Wish direction in world space from held keys, relative to the camera yaw. */
+  function wishDirection() {
+    let fx = 0;
+    let fz = 0;
+    if (keys.has('KeyW') || keys.has('ArrowUp')) { fx += -Math.sin(yaw); fz += -Math.cos(yaw); }
+    if (keys.has('KeyS') || keys.has('ArrowDown')) { fx += Math.sin(yaw); fz += Math.cos(yaw); }
+    if (keys.has('KeyA') || keys.has('ArrowLeft')) { fx += -Math.cos(yaw); fz += Math.sin(yaw); }
+    if (keys.has('KeyD') || keys.has('ArrowRight')) { fx += Math.cos(yaw); fz += -Math.sin(yaw); }
+    return { x: fx, z: fz };
+  }
 
   return {
-    /** -1 for left, 1 for right, 0 for neither or both. */
-    direction() {
-      return (right ? 1 : 0) - (left ? 1 : 0);
-    },
-    /** The one-shot presses since the last call, as ACTION_* flags. */
-    takeActions() {
-      const taken = actions;
-      actions = 0;
-      return taken;
-    },
+    get yaw() { return yaw; },
+    set yaw(v) { yaw = v; },
+    get pitch() { return pitch; },
+    running() { return keys.has('ShiftLeft') || keys.has('ShiftRight'); },
+    wishDirection,
   };
 }

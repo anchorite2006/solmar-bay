@@ -1,79 +1,52 @@
-// The screenshot scenes behind ?shot=start|play|end. Each one plays the real rules forward from a
-// fresh world for a fixed number of steps, steered by a simple autopilot (look ahead each way the
-// paddle could move, keep clear of blocks, chase the lowest coin when that is safe), so the frame
-// is what a short game really looks like and the same seed always gives the same frame.
-import { FIELD, PLAYER, STEP } from './config.js';
-import { EVENT_OVER, KIND_BLOCK } from './world.js';
-import { SCREEN_OVER, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
+// The staged views behind ?shot=start|play|overview|street. Each one places the player and the
+// camera (and, where it helps the frame, nudges one parked car into view) from the same seeded
+// city, so the same seed always gives the same frame. Every street-level shot looks EAST down
+// the avenue (road z=27): the player faces +x, the camera sits behind on the same road, so the
+// frame holds the player, a parked car, palms and the building fronts on both sides — never a
+// camera wedged inside a building block.
+import { movePlayer } from './player.js';
 
-const START_SECONDS = 5;
-const PLAY_SECONDS = 26;
-const END_LIMIT_SECONDS = 600;
-/**
- * How far ahead, in seconds, the autopilot checks each way it could move: the play scene's pilot
- * looks well ahead and keeps all its lives; the end scene's looks only a moment ahead, so it is
- * caught out once the blocks speed up, as a hurried player is.
- */
-const HORIZON_PLAY = 0.7;
-const HORIZON_END = 0.25;
-const SAMPLE = 1 / 30;
-const DIRECTIONS = [0, -1, 1];
-/** Extra room, each side, it keeps between the paddle and a block. */
-const MARGIN = 10;
-
-/** Seconds until moving in `direction` (-1, 0, 1) runs the paddle into a block; Infinity when it never does. */
-function timeToHit(state, direction, horizon) {
-  const player = state.player;
-  for (let t = SAMPLE; t <= horizon; t += SAMPLE) {
-    const x = Math.min(FIELD.width - player.width, Math.max(0, player.x + direction * PLAYER.speed * t));
-    for (let index = 0; index < state.items.length; index += 1) {
-      const item = state.items[index];
-      if (!item.active || item.kind !== KIND_BLOCK) continue;
-      const y = item.y + item.speed * t;
-      if (y + item.height > player.y && y < player.y + player.height && item.x < x + player.width + MARGIN && item.x + item.width > x - MARGIN) return t;
-    }
-  }
-  return Infinity;
+/** Put one parked car at a fixed spot on the avenue, facing along the road. */
+function parkCarForFrame(car, x, z, facing) {
+  car.position.set(x, 0, z);
+  car.rotation.y = facing;
 }
 
-/** Of the safe ways to move, the one toward the lowest coin (or the centre); else the one that is hit last. */
-function autopilot(state, horizon) {
-  const player = state.player;
-  let coin = null;
-  for (let index = 0; index < state.items.length; index += 1) {
-    const item = state.items[index];
-    if (item.active && item.kind !== KIND_BLOCK && (coin === null || item.y > coin.y)) coin = item;
-  }
-  const target = coin === null ? FIELD.width / 2 : coin.x + coin.width / 2;
-  const centre = player.x + player.width / 2;
-  const wanted = target > centre + 8 ? 1 : target < centre - 8 ? -1 : 0;
-  let best = wanted;
-  let bestTime = timeToHit(state, wanted, horizon);
-  for (let index = 0; index < DIRECTIONS.length && bestTime !== Infinity; index += 1) {
-    const time = timeToHit(state, DIRECTIONS[index], horizon);
-    if (time > bestTime) {
-      bestTime = time;
-      best = DIRECTIONS[index];
-    }
-  }
-  return best;
+/** Shared street-level setup: player on the avenue facing east, camera behind on the road. */
+function faceEast(ctx, playerX, distance, pitch) {
+  const { player, input } = ctx;
+  player.position.set(playerX, 0, 27);
+  player.rotation.y = Math.PI / 2;
+  input.yaw = -Math.PI / 2;
+  ctx.cameraPitch = pitch;
+  ctx.cameraDistance = distance;
 }
 
-/**
- * Set `world` to the named scene (start, play or end; any other name is start) and return the
- * screen to draw over it and the best score to show.
- */
-export function stageShot(name, world) {
-  world.reset();
-  if (name !== 'play' && name !== 'end') {
-    for (let index = 0; index < START_SECONDS / STEP; index += 1) world.step(STEP, 0, true);
-    return { screen: SCREEN_TITLE, best: 0 };
+export function stageShot(name, ctx) {
+  const { player, input, cars } = ctx;
+  ctx.overview = false;
+  if (name === 'overview') {
+    player.position.set(0, 0, 27);
+    player.rotation.y = Math.PI / 2;
+    input.yaw = -Math.PI / 2;
+    ctx.overview = true;
+    return;
   }
-  const limit = name === 'end' ? END_LIMIT_SECONDS : PLAY_SECONDS;
-  const horizon = name === 'end' ? HORIZON_END : HORIZON_PLAY;
-  for (let index = 0; index < limit / STEP; index += 1) {
-    if (world.step(STEP, autopilot(world.state, horizon), false) & EVENT_OVER) break;
+  if (name === 'street') {
+    faceEast(ctx, -2, 6, 0.22);
+    parkCarForFrame(cars[2], 3, 24.5, Math.PI / 2);
+    return;
   }
-  const over = world.state.lives === 0;
-  return { screen: over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score };
+  if (name === 'play') {
+    // Walk the player east up the avenue for two seconds so the frame catches a mid-stride pose.
+    faceEast(ctx, -6, 8, 0.35);
+    parkCarForFrame(cars[1], 10, 29.5, -Math.PI / 2);
+    for (let i = 0; i < 120; i += 1) movePlayer(player, ctx.colliders, 1, 0, 1 / 60, false);
+    player.rotation.y = Math.PI / 2;
+    return;
+  }
+  // start (default, also the cover): player at the kerb, a parked car just ahead on the right,
+  // camera low behind, avenue and towers filling the frame.
+  faceEast(ctx, 0, 9, 0.3);
+  parkCarForFrame(cars[0], 6, 24.5, Math.PI / 2);
 }

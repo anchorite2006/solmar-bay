@@ -1,134 +1,121 @@
-// Boot and the one loop: input is read every frame, the world advances in fixed 1/60 s steps
-// (several in a slow frame, none in a fast one), and the renderer paints what is there. The game
-// moves between four screens: title, play, paused and game over.
-//
-// ?seed=N fixes the falling pattern. ?shot=start|play|end (with &seed=N) stages that scene
-// instead of running the loop, paints it twice and sets window.__shotReady for a screenshot.
-import { BEST_KEY, LIVES, STEP } from './config.js';
-import { createRandom } from './random.js';
-import { createWorld, EVENT_HIT, EVENT_OVER } from './world.js';
-import { ACTION_CONFIRM, ACTION_PAUSE, createInput } from './input.js';
-import { createRenderer, SCREEN_OVER, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
+// Solmar Bay M1 baseline: renderer, sun + sky, city, player, follow camera, HUD, start overlay,
+// and the ?shot= staged views used for screenshots.
+import * as THREE from 'three';
+import { CAMERA, SEED_DEFAULT, SKY } from './config.js';
+import { buildCity } from './world.js';
+import { makePlayer, movePlayer } from './player.js';
+import { createInput } from './input.js';
 import { stageShot } from './shots.js';
 
-/** The longest frame the loop catches up on; a longer stall (a hidden tab) is dropped, not replayed. */
-const MAX_FRAME = 0.25;
-
 const params = new URLSearchParams(window.location.search);
+const seed = Number(params.get('seed') ?? SEED_DEFAULT) || SEED_DEFAULT;
 const shot = params.get('shot');
-const seedParam = Number.parseInt(params.get('seed') ?? '', 10);
-const seed = Number.isInteger(seedParam) ? seedParam : Math.floor(Math.random() * 4294967296);
 
-const canvas = document.getElementById('game');
-const status = document.getElementById('status');
-const world = createWorld(createRandom(seed));
-const renderer = createRenderer(canvas);
+const app = document.getElementById('app');
+const posEl = document.getElementById('pos');
+const overlay = document.getElementById('overlay');
 
-function readBest() {
-  try {
-    return Number.parseInt(window.localStorage.getItem(BEST_KEY) ?? '0', 10) || 0;
-  } catch {
-    return 0;
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+app.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(SKY.horizon);
+scene.fog = new THREE.Fog(SKY.fogColor, SKY.fogNear, SKY.fogFar);
+
+const camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.1, 600);
+
+const hemi = new THREE.HemisphereLight(SKY.top, 0xa89878, 1.4);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(SKY.sunColor, SKY.sunIntensity);
+sun.position.set(60, 150, 30);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = -140;
+sun.shadow.camera.right = 140;
+sun.shadow.camera.top = 140;
+sun.shadow.camera.bottom = -140;
+sun.shadow.camera.far = 400;
+scene.add(sun);
+
+const city = buildCity(scene, seed);
+const player = makePlayer();
+player.position.set(0, 0, 27);
+player.rotation.y = Math.PI / 2;
+scene.add(player);
+const input = createInput(renderer.domElement);
+input.yaw = -Math.PI / 2; // live play starts facing east down the avenue, camera behind on the road
+
+const ctx = {
+  player,
+  input,
+  cars: city.cars,
+  colliders: city.colliders,
+  overview: false,
+  cameraPitch: 0.42,
+  cameraDistance: CAMERA.distance,
+};
+
+function placeCamera() {
+  if (ctx.overview) {
+    camera.position.set(70, 85, 70);
+    camera.lookAt(0, 0, 0);
+    return;
   }
+  const yaw = input.yaw;
+  const pitch = shot ? ctx.cameraPitch : input.pitch;
+  const dist = ctx.cameraDistance;
+  const horiz = dist * Math.cos(pitch);
+  camera.position.set(
+    player.position.x + Math.sin(yaw) * horiz,
+    player.position.y + 1.6 + dist * Math.sin(pitch),
+    player.position.z + Math.cos(yaw) * horiz,
+  );
+  camera.lookAt(player.position.x, player.position.y + 1.5, player.position.z);
 }
 
-function saveBest(value) {
-  try {
-    window.localStorage.setItem(BEST_KEY, String(value));
-  } catch {
-    // Storage can be off (private windows): the best score then lasts this visit only.
-  }
+function updateHud() {
+  posEl.textContent = `x ${player.position.x.toFixed(1)} \u00a0 z ${player.position.z.toFixed(1)}`;
 }
 
-function runShot(name) {
-  const scene = stageShot(name, world);
-  let painted = 0;
-  function paint() {
-    renderer.draw(world.state, scene.screen, scene.best);
-    painted += 1;
-    if (painted < 2) requestAnimationFrame(paint);
-    else window.__shotReady = true;
+let started = false;
+overlay.addEventListener('click', () => {
+  started = true;
+  overlay.classList.add('hidden');
+});
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+const clock = new THREE.Clock();
+function frame() {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  if (started) {
+    const wish = input.wishDirection();
+    movePlayer(player, city.colliders, wish.x, wish.z, dt, input.running());
   }
-  requestAnimationFrame(paint);
+  placeCamera();
+  updateHud();
+  renderer.render(scene, camera);
 }
 
-function runGame() {
-  const input = createInput(canvas);
-  let screen = SCREEN_TITLE;
-  let best = readBest();
-  let accumulator = 0;
-  let last = performance.now();
-
-  // Screen readers (and anyone watching the page's text) hear the screen changes and each hit.
-  function announce(message) {
-    status.textContent = message;
-  }
-
-  function startGame() {
-    world.reset();
-    accumulator = 0;
-    screen = SCREEN_PLAY;
-    announce(`Playing. ${LIVES} lives.`);
-  }
-
-  function endGame() {
-    screen = SCREEN_OVER;
-    if (world.state.score > best) {
-      best = world.state.score;
-      saveBest(best);
-    }
-    announce(`Game over. Score ${world.state.score}. Best ${best}.`);
-  }
-
-  function handleActions() {
-    const actions = input.takeActions();
-    if (actions & ACTION_CONFIRM && (screen === SCREEN_TITLE || screen === SCREEN_OVER)) startGame();
-    else if (actions & ACTION_PAUSE && screen === SCREEN_PLAY) {
-      screen = SCREEN_PAUSED;
-      announce('Paused.');
-    } else if (actions & (ACTION_PAUSE | ACTION_CONFIRM) && screen === SCREEN_PAUSED) {
-      screen = SCREEN_PLAY;
-      announce('Playing.');
-    }
-  }
-
-  function step() {
-    if (screen === SCREEN_TITLE) {
-      world.step(STEP, 0, true);
-      return;
-    }
-    const events = world.step(STEP, input.direction(), false);
-    if (events & EVENT_OVER) endGame();
-    else if (events & EVENT_HIT) announce(world.state.lives === 1 ? 'Hit. 1 life left.' : `Hit. ${world.state.lives} lives left.`);
-  }
-
-  function frame(now) {
-    requestAnimationFrame(frame);
-    accumulator += Math.min((now - last) / 1000, MAX_FRAME);
-    last = now;
-    handleActions();
-    if (screen === SCREEN_TITLE || screen === SCREEN_PLAY) {
-      while (accumulator >= STEP && (screen === SCREEN_TITLE || screen === SCREEN_PLAY)) {
-        step();
-        accumulator -= STEP;
-      }
-    } else {
-      accumulator = 0;
-    }
-    renderer.draw(world.state, screen, best);
-  }
-
-  // Leaving the tab pauses a running game rather than letting blocks fall unseen.
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden && screen === SCREEN_PLAY) {
-      screen = SCREEN_PAUSED;
-      announce('Paused.');
-    }
-  });
-
-  announce('Block Dodger. Press Space or click to start.');
-  requestAnimationFrame(frame);
+if (shot) {
+  // Staged screenshot mode: no overlay, no loop — one settled frame, then signal readiness.
+  overlay.classList.add('hidden');
+  started = true;
+  stageShot(shot, ctx);
+  placeCamera();
+  updateHud();
+  renderer.render(scene, camera);
+  renderer.render(scene, camera);
+  window.__solmarReady = true;
+} else {
+  renderer.setAnimationLoop(frame);
+  window.__solmarReady = true;
 }
-
-if (shot) runShot(shot);
-else runGame();

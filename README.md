@@ -10,4 +10,13 @@ Solmar Bay is an original open-world crime game that runs entirely in the browse
 
 node serve.ts
 
-Then open http://localhost:8080 in a desktop browser. Zero network requests: every sound is synthesized with WebAudio and every sprite is drawn in code.
+Then open http://localhost:8080 in a desktop browser. Zero network requests: three.js is vendored under `game/vendor/`, the city is generated in code from a fixed seed, and every sound is synthesized with WebAudio.
+
+## Controls
+
+WASD / arrow keys — walk, Shift — run, drag the mouse — orbit the camera.
+
+## Milestones
+
+- **M1 baseline (this commit):** a walkable procedural city — 5×5 blocks of roads, sidewalks, buildings, palm trees and parked cars, third-person follow camera, start overlay and HUD. Playable on foot, fully offline.
+- **Next:** driving, car theft, traffic, police wanted levels, and missions for the city's crews.
