@@ -27,3 +27,14 @@ export const SKY = {
   fogNear: 90,
   fogFar: 320,
 };
+
+// Road centre lines of the grid, derived from the layout above: -135, -81, -27, 27, 81, 135.
+// Cars (driven and AI) travel on these lines; pedestrians stay on the block sidewalks inside them.
+const PITCH = CITY.blockSize + CITY.roadWidth;
+const HALF = (CITY.blocks * PITCH - CITY.roadWidth) / 2;
+export const ROAD_CENTERS = Array.from(
+  { length: CITY.blocks + 1 },
+  (_v, i) => -HALF - CITY.roadWidth / 2 + i * PITCH,
+);
+export const CITY_HALF = HALF;
+export const CITY_SPAN = HALF + CITY.roadWidth / 2;

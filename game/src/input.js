@@ -6,9 +6,11 @@ export function createInput(canvas) {
   let dragging = false;
   let lastX = 0;
   let lastY = 0;
+  let actionQueued = false;
 
   window.addEventListener('keydown', (e) => {
     keys.add(e.code);
+    if (e.code === 'KeyE') actionQueued = true;
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
   });
   window.addEventListener('keyup', (e) => keys.delete(e.code));
@@ -44,5 +46,21 @@ export function createInput(canvas) {
     get pitch() { return pitch; },
     running() { return keys.has('ShiftLeft') || keys.has('ShiftRight'); },
     wishDirection,
+    /** True once per E keypress; consumes the press so holding E cannot re-trigger. */
+    consumeAction() {
+      const pressed = actionQueued;
+      actionQueued = false;
+      return pressed;
+    },
+    /** Arcade driving controls: W/S throttle, A/D steer (A turns left), Shift boosts. */
+    drive() {
+      return {
+        throttle: (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0)
+          - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0),
+        steer: (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0)
+          - (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0),
+        boost: keys.has('ShiftLeft') || keys.has('ShiftRight'),
+      };
+    },
   };
 }

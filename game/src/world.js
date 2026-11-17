@@ -82,6 +82,7 @@ export function buildCity(scene, seed) {
   const rng = mulberry32(seed);
   const colliders = [];
   const cars = [];
+  const carColliders = [];
   const pitch = CITY.blockSize + CITY.roadWidth;
   const half = (CITY.blocks * pitch - CITY.roadWidth) / 2;
 
@@ -190,13 +191,15 @@ export function buildCity(scene, seed) {
     cars.push(car);
     const hx = 1.1;
     const hz = 2.3;
-    colliders.push({
+    const carCollider = {
       minX: car.position.x - (horizontal ? hz : hx),
       maxX: car.position.x + (horizontal ? hz : hx),
       minZ: car.position.z - (horizontal ? hx : hz),
       maxZ: car.position.z + (horizontal ? hx : hz),
-    });
+    };
+    colliders.push(carCollider);
+    carColliders.push(carCollider);
   }
 
-  return { colliders, cars, half };
+  return { colliders, cars, carColliders, half };
 }
